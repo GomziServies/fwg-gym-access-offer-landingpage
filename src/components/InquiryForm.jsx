@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Check, CheckCircle2, ChevronDown, Loader2, Send } from "lucide-react";
 import { API_BASE, BRANCHES, GYM_MEMBERSHIP, INQUIRY_PLANS, INQUIRY_SUBJECT_PREFIX, NOT_SURE_PLAN } from "../data/offer";
 import { WhatsAppButton } from "./Buttons";
+import { withVisitorTracking } from "../crm/fg-crm-tracking";
 
 // Plan cards fire this event so their "Send Enquiry" button pre-selects the plan here.
 export const SELECT_PLAN_EVENT = "fwg:select-plan";
@@ -200,24 +201,26 @@ const InquiryForm = () => {
     setStatus("sending");
     setServerError("");
     try {
+      // withVisitorTracking adds the visitor id (when the visitor agreed), so the enquiry joins their CRM lead
+      const payload = await withVisitorTracking({
+        name: form.name.trim(),
+        mobile: form.mobile,
+        email: form.email.trim(),
+        // e.g. "FWG Gym Offer - Gym Plan (₹24,000) - Vesu"
+        subject: `${INQUIRY_SUBJECT_PREFIX} - ${plan.id === NOT_SURE_PLAN.id ? "Help Choosing a Plan" : plan.label} - ${branch.name}`,
+        message: [`Plan: ${plan.label}`, `Preferred branch: ${branch.name}`, `Message: ${note || "-"}`].join("\n"),
+        source: window.location.href,
+        details: {
+          leadType: "fwg_gym_offer",
+          plan_id: plan.id,
+          plan: plan.label,
+          preferred_branch: branch.name,
+        },
+      });
       const res = await fetch(`${API_BASE}/public/v1/contact-inquiry`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: form.name.trim(),
-          mobile: form.mobile,
-          email: form.email.trim(),
-          // e.g. "FWG Gym Offer - Gym Plan (₹24,000) - Vesu"
-          subject: `${INQUIRY_SUBJECT_PREFIX} - ${plan.id === NOT_SURE_PLAN.id ? "Help Choosing a Plan" : plan.label} - ${branch.name}`,
-          message: [`Plan: ${plan.label}`, `Preferred branch: ${branch.name}`, `Message: ${note || "-"}`].join("\n"),
-          source: window.location.href,
-          details: {
-            leadType: "fwg_gym_offer",
-            plan_id: plan.id,
-            plan: plan.label,
-            preferred_branch: branch.name,
-          },
-        }),
+        body: JSON.stringify(payload),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json?.message || "Could not send your enquiry.");
